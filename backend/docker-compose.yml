@@ -1,0 +1,36 @@
+# Local infrastructure for Certo backend: Postgres (with pgvector) + Redis.
+# Usage: docker compose up -d
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: certo-postgres
+    environment:
+      POSTGRES_USER: certo
+      POSTGRES_PASSWORD: certo
+      POSTGRES_DB: certo
+    ports:
+      - "5432:5432"
+    volumes:
+      - certo_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U certo -d certo"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: certo-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - certo_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  certo_pgdata:
+  certo_redisdata:

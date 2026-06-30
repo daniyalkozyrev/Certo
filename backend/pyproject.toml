@@ -1,0 +1,59 @@
+[project]
+name = "certo-backend"
+version = "0.1.0"
+description = "Certo — platform for evaluating and improving AI agents (TrustScore, E2B sandbox, Prometheus-2 judge)"
+requires-python = ">=3.12"
+dependencies = [
+    # Web framework
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "python-multipart>=0.0.12",
+    # Config / validation
+    "pydantic[email]>=2.9",
+    "pydantic-settings>=2.6",
+    "python-dotenv>=1.0",
+    # Database (async)
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30",
+    "alembic>=1.14",
+    "pgvector>=0.3.6",
+    # Background jobs
+    "arq>=0.26",
+    "redis>=5.2",
+    # External services
+    "e2b-code-interpreter>=1.0.0",
+    "openai>=1.55",          # OpenAI-compatible client -> talks to self-hosted vLLM (Prometheus-2)
+    "anthropic>=0.40",       # official Claude SDK -> temporary judge while Prometheus GPU is down
+    "httpx>=0.27",
+    # Auth / security
+    "passlib[bcrypt]>=1.7.4",
+    "pyjwt>=2.10",
+    # Utilities
+    "structlog>=24.4",
+    "tenacity>=9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.8",
+    "mypy>=1.13",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]

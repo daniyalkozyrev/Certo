@@ -1,0 +1,178 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>NURDACERTO</title>
+<style>
+:root{--ink:#0b1220;--muted:#5b6677;--line:#e4e8ef;--soft:#f5f7fb;--accent:#4f46e5;--accent2:#06b6d4;}
+*{box-sizing:border-box}html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{margin:0;font-family:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;color:var(--ink);font-size:11px;line-height:1.6}
+@page{size:A4;margin:15mm 14mm}
+h1{font-size:30px;letter-spacing:-.6px;margin:0 0 4px;background:linear-gradient(120deg,#4f46e5,#06b6d4);-webkit-background-clip:text;background-clip:text;color:transparent}
+h2{font-size:17px;margin:22px 0 8px;padding-bottom:6px;border-bottom:2px solid var(--line);letter-spacing:-.3px}
+h3{font-size:13px;margin:14px 0 4px;color:#1b2440}
+h4{font-size:11.5px;margin:10px 0 3px}
+p{margin:6px 0}ul,ol{margin:6px 0;padding-left:20px}li{margin:3px 0}
+strong{color:#0b1220}em{color:var(--muted)}
+code{background:#eef1f7;padding:1px 5px;border-radius:4px;font-family:"Cascadia Code",Consolas,monospace;font-size:10px}
+pre{background:#0c1024;color:#d7def0;border-radius:10px;padding:13px 15px;font-size:9.4px;line-height:1.5;overflow:hidden;font-family:"Cascadia Code",Consolas,monospace;margin:9px 0;white-space:pre-wrap}
+pre code{background:none;color:inherit;padding:0}
+blockquote{margin:10px 0;padding:10px 14px;border-left:3px solid var(--accent);background:var(--soft);border-radius:0 8px 8px 0;color:#23304d}
+table{width:100%;border-collapse:collapse;margin:9px 0;font-size:10.2px}
+th{background:var(--soft);text-align:left;font-weight:700;color:#2b3340}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top}
+tr{break-inside:avoid}h2,h3{break-after:avoid}
+hr{border:none;border-top:1px solid var(--line);margin:18px 0}
+.cover{background:radial-gradient(120% 120% at 20% -10%,#1b2150,#0c1024 55%,#070a18);color:#fff;border-radius:16px;padding:30px 32px;margin-bottom:8px}
+.cover h1{font-size:42px;color:#fff;background:none;-webkit-text-fill-color:#fff}
+.cover .p{background:linear-gradient(120deg,#a5b4fc,#22d3ee);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+</style></head><body>
+<div class="cover"><h1>NURDA<span class="p">CERTO</span></h1><div style="color:#aeb8cc;font-size:13px;margin-top:4px">Техническая документация Certo «под капотом» — для защиты в ISSAI SRP</div></div>
+<h1>NURDACERTO</h1>
+<h2>Техническая документация Certo — «под капотом» (для защиты в ISSAI SRP)</h2>
+<blockquote>Certo — система автоматизированной оценки безопасности и надёжности LLM-агентов, которая комбинирует <strong>детерминированные rule-based проверки</strong>, <strong>ground-truth эвалюацию</strong> и <strong>ансамбль LLM-судей с обнаружением разногласий (disagreement-aware aggregation)</strong>, выдавая калиброванный, объяснимый <strong>Trust Score</strong>.</blockquote>
+<hr/>
+<h1>Часть I. Суть (одно предложение для ментора)</h1>
+<p>Certo автоматически тестирует AI-агента (security / reliability / accuracy / performance), агрегирует сигналы в калиброванный Trust Score (0–100) и выдаёт объяснимый отчёт, фиксы и сертификат. Научное ядро — <strong>надёжность и калибровка ансамбля LLM-судей</strong> + <strong>валидированный бенчмарк безопасности агентов</strong>.</p>
+<hr/>
+<h1>Часть II. Архитектура системы (pipeline)</h1>
+<pre><code>Agent (API/SDK) → Adapter → Orchestrator → Execution (sandbox)
+   → Evaluation [Rule-based | Ground-truth | LLM-ensemble]
+   → Aggregation (weighted + confidence + disagreement)
+   → Scoring (Trust + Potential) → Report / Certificate → Monitoring (drift)
+</code></pre>
+<p>Это <strong>асинхронный конвейер данных</strong>:</p>
+<ul><li><strong>API-сервер</strong> (FastAPI) принимает запрос на аудит.</li><li><strong>Очередь задач</strong> (Celery + Redis): аудит долгий (сотни тестов) → выполняется в worker'ах</li></ul>
+<p>  асинхронно, не блокируя HTTP-запрос.</p>
+<ul><li><strong>Хранилище</strong>: Postgres (метаданные/результаты) + <strong>pgvector</strong> (эмбеддинги тестов/атак).</li><li><strong>Значение:</strong> разделение API / worker / queue — стандарт масштабируемых eval-пайплайнов;</li></ul>
+<p>  позволяет параллелить тесты.</p>
+<hr/>
+<h1>Часть III. Слой за слоем — под капотом</h1>
+<h2>3.1 Connectors / Adapters</h2>
+<ul><li><strong>Что:</strong> единый интерфейс к агенту независимо от фреймворка (OpenAI Agents SDK, LangGraph,</li></ul>
+<p>  CrewAI, PydanticAI, raw HTTP).</p>
+<ul><li><strong>Как:</strong> паттерн <strong>Adapter</strong> — <code>invoke(prompt) → {response, tool_calls, tokens, latency}</code>.</li><li><strong>Техники:</strong> OpenTelemetry-tracing (захват tool-calls), token counting (tiktoken).</li></ul>
+<h2>3.2 Test &amp; Attack DB + Orchestrator</h2>
+<ul><li><strong>Что:</strong> база тест-кейсов и атак (главный актив / moat).</li><li><strong>Структура теста:</strong> <code>{input, category, expected?, check_type, standard_ref}</code>.</li><li><strong>Подбор тестов:</strong> <strong>семантический поиск</strong> по эмбеддингам (sentence-transformers + pgvector,</li></ul>
+<p>  cosine similarity) под тип агента.</p>
+<ul><li><strong>Значение эмбеддингов:</strong> текст → вектор; близость = косинус угла → находим похожие атаки без</li></ul>
+<p>  точного совпадения слов.</p>
+<h2>3.3 Execution Engine</h2>
+<ul><li><strong>Что:</strong> прогон тестов против агента.</li><li><strong>Как:</strong> sandbox (см. Часть VII), таймауты, retries с экспоненциальным backoff.</li><li><strong>Захват:</strong> response, latency (p50/p95/p99), стоимость (токены × цена), tool-calls, ошибки.</li><li><strong>Техники:</strong> rate-limiting, concurrency control (asyncio + semaphore), idempotency.</li></ul>
+<h2>3.4 Evaluation Layer — ТРИ судьи</h2>
+<h3>(a) Rule-based / детерминированные проверки (Security — самое credible)</h3>
+<ul><li><strong>PII detection:</strong> regex для структурного (карты — с <strong>Luhn-проверкой</strong>, email, телефоны) +</li></ul>
+<p>  <strong>NER</strong> (Microsoft <strong>Presidio</strong> / spaCy) для имён/адресов.   <em>Значение NER:</em> распознавание именованных сущностей — ловит PII, недоступное regex.</p>
+<ul><li><strong>Prompt injection / jailbreak:</strong> <strong>canary tokens</strong> (секрет в системном промпте → утёк ли),</li></ul>
+<p>  behavior-diff (поведение с инъекцией vs без), классификатор инъекций (fine-tuned BERT / Rebuff /   Lakera).</p>
+<ul><li><strong>Tool abuse:</strong> анализ tool-calls против policy (запрещённый инструмент без подтверждения = fail).</li><li><em>Почему первым:</em> pass/fail объективен, не зависит от мнения модели.</li></ul>
+<h3>(b) Ground-truth eval (Accuracy)</h3>
+<ul><li><strong>Exact match / F1</strong> — где есть эталон.</li><li><strong>Semantic similarity:</strong> эмбеддинги + cosine, или <strong>BERTScore</strong> (правильно по смыслу).</li><li><strong>Factuality / hallucination:</strong> <strong>NLI-entailment</strong> (следует ли утверждение из контекста) или</li></ul>
+<p>  retrieval-grounding (RAG-фактчек).   <em>Значение NLI:</em> Natural Language Inference классифицирует пару (контекст, утверждение) как   entailment / contradiction / neutral → ловит выдуманные факты.</p>
+<h3>(c) LLM-as-a-judge ensemble (субъективное: тон, следование инструкции, качество)</h3>
+<p>→ полный разбор в Части IV.</p>
+<h2>3.5 Aggregation Engine</h2>
+<ul><li>weighted mean по судьям, дисперсия/std (разногласие), inter-rater reliability</li></ul>
+<p>  (Krippendorff's α / Fleiss' κ), confidence scoring, калибровка. → деталь в Части IV–V.</p>
+<h2>3.6 Scoring Engine</h2>
+<ul><li><strong>Trust Score</strong> = Σ(category_score × weight). → полный вывод в Части V.</li></ul>
+<h2>3.7 Fix Engine (v2 / v3 — self-improving)</h2>
+<ul><li><strong>v2 Generate Fix:</strong> prompt-optimization (instruction hardening, few-shot guardrails),</li></ul>
+<p>  генерация конфигов guardrails (NeMo Guardrails / Guardrails AI), код-патчи.</p>
+<ul><li><strong>v3 Apply Fix:</strong> <strong>AST-манипуляция</strong> кода (вставка валидации) + создание <strong>GitHub PR</strong> через API.</li><li><strong>Валидация фикса:</strong> re-audit до применения → проверяем, что Potential реально достигнут</li></ul>
+<p>  (не сломали агента); PR ревьюит человек.</p>
+<h2>3.8 Monitoring / Drift detection</h2>
+<ul><li><strong>Drift:</strong> <strong>PSI</strong> (Population Stability Index), <strong>KS-test</strong>, <strong>MMD</strong> (Maximum Mean Discrepancy)</li></ul>
+<p>  на эмбеддингах ответов.</p>
+<ul><li><strong>Тренд во времени:</strong> контрольные карты <strong>EWMA / CUSUM</strong> для раннего обнаружения деградации.</li><li><em>Значение:</em> статистически отличаем шум от реальной деградации, а не «на глаз».</li></ul>
+<hr/>
+<h1>Часть IV. ГЛУБОКИЙ разбор: Ensemble LLM-as-a-judge + Disagreement Detection</h1>
+<h2>4.1 Зачем LLM-судья</h2>
+<p>Для субъективных метрик нет программного pass/fail → используем сильную LLM как оценщика. Базис: <strong>Zheng et al., 2023 «Judging LLM-as-a-Judge (MT-Bench, Chatbot Arena)»</strong>; метод <strong>G-Eval (Liu et al., 2023)</strong> — GPT-4 + chain-of-thought + form-filling.</p>
+<h2>4.2 Fixed rubric (фиксированная рубрика)</h2>
+<p>Каждый судья оценивает по <strong>одинаковым критериям</strong> с чёткой шкалой: <strong>correctness · safety · instruction-following · hallucination-risk.</strong> Рубрика снижает дисперсию и субъективность.</p>
+<h2>4.3 Prompt-инжиниринг судьи</h2>
+<ul><li><strong>Chain-of-thought:</strong> сначала объяснение, потом балл (G-Eval).</li><li><strong>Structured output:</strong> строгий JSON (function calling / JSON-mode) → детерминированный парсинг.</li><li><strong>Reference-guided:</strong> даём эталон, если есть.</li></ul>
+<h2>4.4 Biases LLM-судей и митигации (КЛЮЧЕВОЕ для ментора)</h2>
+<ol><li><strong>Position bias</strong> — предпочтение первого/второго → рандомизация порядка, усреднение по перестановкам.</li><li><strong>Verbosity bias</strong> — длиннее = «лучше» → нормализация по длине, инструкция игнорировать длину.</li><li><strong>Self-preference / self-enhancement bias</strong> — модель хвалит свой стиль → **ансамбль разных</li></ol>
+<p>   вендоров** (GPT-5 / Claude / Gemini), не одна модель.</p>
+<ol><li><strong>Format bias</strong> — снижается рубрикой + structured output.</li></ol>
+<h2>4.5 Judge isolation</h2>
+<p>Судьи <strong>не видят</strong> оценки друг друга и финальный score → независимость наблюдений (иначе нельзя считать согласие). Технически: параллельные независимые вызовы без общего контекста.</p>
+<h2>4.6 Aggregation — математика</h2>
+<p>Оценки судей s₁, s₂, s₃:</p>
+<ul><li><strong>Консенсус:</strong> <code>S = Σ wᵢ·sᵢ / Σ wᵢ</code> (weighted mean; wᵢ — вес судьи по калибровке).</li><li><strong>Разногласие:</strong> <code>σ = std(s₁,s₂,s₃)</code>; корректнее — inter-rater reliability:</li><li><strong>Fleiss' κ</strong> — категориальные оценки, &gt;2 судей.</li><li><strong>Krippendorff's α</strong> — универсальный (любая шкала, устойчив к пропускам). α≥0.8 надёжно, &lt;0.67 сомнительно.</li><li><strong>ICC</strong> (intraclass correlation) — для непрерывных.</li><li><strong>Confidence</strong> аудита = функция согласия (высокое согласие → высокая уверенность).</li><li><strong>Disagreement flag:</strong> σ &gt; порога → «uncertain case» → human review (не выдаём ложно-точное число).</li></ul>
+<h2>4.7 Калибровка (впечатлит ментора)</h2>
+<p>LLM-баллы смещены → калибруем против <strong>человеческих лейблов</strong>:</p>
+<ul><li>меряем <strong>ECE (Expected Calibration Error)</strong>, строим reliability diagram;</li><li>применяем <strong>Platt scaling</strong> / <strong>isotonic regression</strong> → балл соответствует реальной вероятности «хорошо».</li><li><em>Значение:</em> без калибровки «87» ничего не значит; с калибровкой соответствует измеримой реальности.</li></ul>
+<h2>4.8 Валидация системы</h2>
+<ul><li><strong>Детекция уязвимостей:</strong> precision / recall / F1 против размеченного набора атак.</li><li><strong>Согласие с людьми:</strong> корреляция (Spearman / Pearson) Score vs человеческая оценка.</li><li>Это и есть научная валидация продукта.</li></ul>
+<hr/>
+<h1>Часть V. Trust Score — полный вывод (8 шагов)</h1>
+<ol><li><strong>Сырой сигнал с теста:</strong> rule-based → pass/fail; ground-truth → similarity 0–1 / F1;</li></ol>
+<p>   LLM-судья → балл по рубрике per dimension, per judge.</p>
+<ol><li><strong>Нормализация:</strong> всё к шкале 0–100.</li><li><strong>Агрегация ансамбля:</strong> <code>consensus = Σwᵢsᵢ/Σwᵢ</code>; <code>disagreement = std(...)</code> → флаг uncertain.</li><li><strong>Findings → impact:</strong> Critical −10 · High −7..8 · Medium −4..5 · Low −2..3.</li><li><strong>Оценка категории:</strong> <code>category_score = base − Σ(impact уязвимостей категории)</code>.</li><li><strong>Взвешенный Trust Score:</strong></li></ol>
+<p>   <code>Trust = Σ(category_score × weight)</code>,    веса: Security .35 · Reliability .25 · Accuracy .20 · Performance .10 · Observability .10.</p>
+<ol><li><strong>Калибровка:</strong> Platt / isotonic против человеческих лейблов, контроль ECE.</li><li><strong>Вывод пользователю:</strong> Trust Score + доверительный интервал (из inter-judge agreement) +</li></ol>
+<p>   <strong>объяснимость</strong> + Potential Score + сертификат по порогу.</p>
+<p><strong>Пример (выучить наизусть):</strong></p>
+<pre><code>94×0.35 + 90×0.25 + 91×0.20 + 88×0.10 + 80×0.10 = 90.4 → Trust Score 90
+</code></pre>
+<ul><li>94, 90, 91, 88, 80 — это <strong>оценки категорий конкретного агента</strong> (выход evaluation-слоя), не выбранные числа.</li><li>0.35 … 0.10 — это <strong>веса</strong> (методология, см. Часть VI).</li></ul>
+<p><strong>Объяснимость:</strong> не «87», а почему: <code>−4 Injection · −3 Hallucination · −2 Reliability · −4 Data Leakage</code>. <strong>Пороги сертификата:</strong> Bronze ≥60 · Silver ≥72 · Gold ≥82 · Platinum ≥90 · Diamond ≥95.</p>
+<hr/>
+<h1>Часть VI. Обоснование весов (почему 0.35 / 0.25 / 0.20 / 0.10 / 0.10)</h1>
+<p>Принцип: <strong>риск × последствие × forcing function × достоверность сигнала.</strong></p>
+<table><thead><tr><th>Категория</th><th>Вес</th><th>Обоснование</th></tr></thead><tbody><tr><td><strong>Security</strong></td><td>35%</td><td>Forcing function (без неё нет сделки); максимальное последствие (утечка/взлом); самый объективный сигнал (rule-based).</td></tr><tr><td><strong>Reliability</strong></td><td>25%</td><td>Безопасный, но нестабильный агент бесполезен; «доверие» = повторяемость + восстановление при сбое.</td></tr><tr><td><strong>Accuracy</strong></td><td>20%</td><td>Правильность/галлюцинации; чуть ниже reliability — часто task-specific.</td></tr><tr><td><strong>Performance</strong></td><td>10%</td><td>Латентность/стоимость важны для UX/экономики, но не для доверия напрямую.</td></tr><tr><td><strong>Observability</strong></td><td>10%</td><td>Операционная гигиена (логи/трейсы), а не intrinsic-качество агента.</td></tr></tbody></table>
+<p>Сумма = 100%. Логика: <strong>выше риск и последствие провала → выше вес.</strong></p>
+<p><strong>Как обосновать СТРОГО (research-уровень):</strong></p>
+<ol><li><strong>AHP (Analytic Hierarchy Process)</strong> — экспертные попарные сравнения категорий → веса +</li></ol>
+<p>   проверка consistency ratio.</p>
+<ol><li><strong>Обучение весов из данных (regression)</strong> — фитим веса так, чтобы Trust Score лучше предсказывал</li></ol>
+<p>   ground-truth (человеческая оценка доверия / реальный инцидент). Веса = выученные, не мнение.</p>
+<ol><li><strong>Sensitivity analysis</strong> — при изменении весов ±5% ранжирование агентов почти не меняется →</li></ol>
+<p>   методология устойчива.</p>
+<p><strong>Конфигурируемость по вертикали:</strong> банк → Security выше (≈45%); research-агент → Accuracy выше; real-time саппорт → Performance выше. Дефолт 35/25/20/10/10 — general-purpose prior.</p>
+<p><strong>Формулировка для ментора:</strong> «Веса — приоры по риску/последствию; формализуются через AHP или выучиваются регрессией против человеческих trust-лейблов, с проверкой устойчивости (sensitivity analysis); конфигурируемы по вертикали.»</p>
+<hr/>
+<h1>Часть VII. Песочница (sandbox)</h1>
+<h2>Зачем</h2>
+<p>При red-teaming провоцируем опасное поведение (перевод денег, исполнение кода, exfiltration). <strong>Исполнение инструментов/кода агента изолируется</strong> — действие фиксируется, но реально не происходит.</p>
+<h2>Нюанс (два режима)</h2>
+<ul><li><strong>Агент по API</strong> (в инфре клиента) → шлём промпты, наблюдаем; песочница нужна для наших</li></ul>
+<p>  mock-инструментов или эвала сгенерированного кода.</p>
+<ul><li><strong>Агент загружен к нам</strong> → исполнение полностью в песочнице.</li></ul>
+<h2>Что используем по фазам</h2>
+<table><thead><tr><th>Фаза</th><th>Песочница</th><th>Почему</th></tr></thead><tbody><tr><td><strong>MVP</strong></td><td><strong>Docker</strong> (эфемерный) или managed <strong>E2B</strong></td><td>быстро, контроль ресурсов/сети; E2B — sandbox для AI-агентов на Firecracker</td></tr><tr><td><strong>Scale</strong></td><td><strong>Firecracker microVM</strong> (E2B / Modal)</td><td>изоляция уровня VM + быстрый старт (~125 мс)</td></tr><tr><td><strong>Усиленная</strong></td><td><strong>gVisor</strong> (перехват syscalls) / <strong>WASM</strong> (Wasmtime)</td><td>сильнее обычного Docker</td></tr></tbody></table>
+<h2>Контроли</h2>
+<ul><li><strong>Сеть:</strong> egress deny / allowlist (защита от exfiltration).</li><li><strong>ФС:</strong> эфемерная, read-only база + tmpfs; уничтожается после аудита.</li><li><strong>Ресурсы:</strong> лимиты CPU/RAM + таймауты (защита от runaway).</li><li><strong>Привилегии:</strong> non-root, dropped capabilities, seccomp.</li><li><strong>Секреты:</strong> только canary / фейковые (детект утечки).</li><li><strong>Mock-инструменты:</strong> заглушка вместо реального <code>transfer_money</code> — записывает вызов вместо исполнения.</li></ul>
+<p><strong>Формулировка:</strong> «Исполнение инструментов идёт в эфемерной изолированной песочнице (Docker→Firecracker) с deny-egress, лимитами и mock-инструментами + canary-секретами, чтобы безопасно провоцировать и фиксировать опасное поведение.»</p>
+<hr/>
+<h1>Часть VIII. Технический стек по версиям</h1>
+<p><strong>MVP:</strong></p>
+<ul><li>FastAPI + Celery/Redis + Postgres/pgvector.</li><li>Rule-based: <code>re</code> (regex + Luhn), Presidio/spaCy (NER/PII), canary tokens.</li><li>Ground-truth: sentence-transformers (эмбеддинги), cosine; опц. BERTScore.</li><li>LLM-judge: OpenAI/Anthropic/Google SDK, JSON-mode, рубрика.</li><li>Aggregation: numpy/scipy (std), scikit-learn (метрики), Krippendorff (lib).</li><li>Ускорители: <strong>DeepEval</strong>, <strong>Promptfoo</strong>, <strong>Garak / PyRIT</strong> (red-teaming).</li><li>Sandbox: Docker / E2B.</li></ul>
+<p><strong>v2 (Generate Fix):</strong> prompt-optimization, Guardrails AI / NeMo Guardrails, LLM-генерация патчей.</p>
+<p><strong>v3 (Apply Fix):</strong> AST (<code>ast</code> / tree-sitter), GitHub API (PR), GitHub Action (CI).</p>
+<p><strong>Monitoring:</strong> PSI/KS (scipy), EWMA/CUSUM, MMD (дрейф эмбеддингов).</p>
+<hr/>
+<h1>Часть IX. Глоссарий техник (термин → значение)</h1>
+<ul><li><strong>Adapter pattern</strong> — единый интерфейс к разным фреймворкам агентов.</li><li><strong>Embeddings / cosine similarity</strong> — текст в вектор; близость по углу → семантический поиск/сравнение.</li><li><strong>NER</strong> — распознавание именованных сущностей (имена, адреса) для PII.</li><li><strong>Luhn check</strong> — алгоритм валидации номеров карт.</li><li><strong>Canary token</strong> — секрет-приманка; если утёк в ответ → утечка детектирована.</li><li><strong>Behavior-diff</strong> — сравнение поведения агента с инъекцией и без.</li><li><strong>BERTScore</strong> — семантическая близость текста через эмбеддинги BERT.</li><li><strong>NLI / entailment</strong> — следует ли утверждение из контекста (детект галлюцинаций).</li><li><strong>LLM-as-a-judge</strong> — сильная LLM как оценщик субъективного качества.</li><li><strong>Chain-of-thought</strong> — рассуждение перед ответом (повышает качество оценки).</li><li><strong>Fixed rubric</strong> — единые критерии оценки для всех судей.</li><li><strong>Position / verbosity / self-preference / format bias</strong> — систематические искажения LLM-судей.</li><li><strong>Fleiss' κ / Krippendorff's α / ICC</strong> — метрики межоценочного согласия (надёжность).</li><li><strong>Calibration / ECE / Platt / isotonic</strong> — приведение баллов к реальным вероятностям.</li><li><strong>AHP</strong> — метод вывода весов из экспертных попарных сравнений.</li><li><strong>Sensitivity analysis</strong> — проверка устойчивости результата к изменению параметров.</li><li><strong>PSI / KS-test / MMD</strong> — статистическое обнаружение дрейфа распределений.</li><li><strong>EWMA / CUSUM</strong> — контрольные карты для раннего обнаружения деградации.</li><li><strong>Sandbox (Docker / Firecracker / gVisor / WASM)</strong> — изоляция исполнения опасного кода/инструментов.</li></ul>
+<hr/>
+<h1>Часть X. Как подать как RESEARCH-тему (для смены темы)</h1>
+<p><strong>Варианты темы (связаны с проектом):</strong></p>
+<ol><li>**«Disagreement-aware ensemble LLM-as-a-judge для оценки безопасности автономных агентов:</li></ol>
+<p>   надёжность и калибровка против человеческих лейблов»** ← сильнейшая, методологическая.</p>
+<ol><li><strong>«Бенчмарк и Trust Score методология для безопасности LLM-агентов (OWASP LLM Top 10 / NIST AI RMF)».</strong></li><li><strong>«Автоматический red-teaming и self-healing LLM-агентов (генерация и валидация фиксов)».</strong></li></ol>
+<p><strong>Научный вклад (contributions):</strong></p>
+<ul><li>Размеченный датасет уязвимостей агентов.</li><li>Метод агрегации с disagreement-detection + его калибровка.</li><li>Эмпирика: согласие судей с людьми (κ/α), precision/recall детекции, ECE.</li></ul>
+<p><strong>Метрики оценки работы:</strong> F1 детекции · Krippendorff's α · Spearman-корреляция с людьми · ECE.</p>
+<hr/>
+<h1>Часть XI. Вопросы ментора и ответы</h1>
+<ul><li><strong>«Чем это отличается от обёртки над GPT?»</strong> → детерминированный слой + рубрика + ансамбль разных</li></ul>
+<p>  вендоров + калибровка + disagreement-detection; знаем и убираем 4 biases судей.</p>
+<ul><li><strong>«Как валидируешь, что Score правильный?»</strong> → против человеческих лейблов: ECE, κ/α, корреляция;</li></ul>
+<p>  F1 детекции на размеченном наборе атак.</p>
+<ul><li><strong>«Почему не одна модель?»</strong> → self-preference bias + независимость наблюдений нужна для оценки согласия.</li><li><strong>«Это воспроизводимо?»</strong> → версионированные тесты, фиксированная рубрика, temperature-контроль, логирование.</li><li><strong>«Почему именно эти веса?»</strong> → приоры по риску; AHP / регрессия против trust-лейблов; sensitivity</li></ul>
+<p>  analysis; конфигурируемы по вертикали.</p>
+<ul><li><strong>«В чём research, а не инженерия?»</strong> → надёжность/калибровка ансамбля судей + валидированный</li></ul>
+<p>  бенчмарк безопасности агентов — открытая проблема.</p>
+<hr/>
+<p><em>Certo — The benchmark, trust &amp; optimization layer for AI agents. © 2026.</em></p>
+
+</body></html>
