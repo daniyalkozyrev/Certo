@@ -5,7 +5,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -30,6 +30,25 @@ class Settings(BaseSettings):
     # ── Database ─────────────────────────────────────────────
     database_url: str = "postgresql+asyncpg://certo:certo@localhost:5432/certo"
     db_echo: bool = False
+    # Create tables on startup via SQLAlchemy create_all (instead of Alembic).
+    # On managed Postgres (e.g. Railway) this gives a fresh, consistent schema
+    # without running migrations — set AUTO_CREATE_TABLES=true there.
+    auto_create_tables: bool = False
+    # Seed a demo agent + benchmark on first boot so a fresh deploy is usable.
+    seed_on_start: bool = False
+
+    @field_validator("database_url")
+    @classmethod
+    def _normalize_db_url(cls, v: str) -> str:
+        """Managed Postgres hands out `postgres://` / `postgresql://` URLs, but the
+        async engine needs the asyncpg driver. Rewrite the scheme transparently."""
+        if v.startswith("postgresql+asyncpg://") or v.startswith("sqlite"):
+            return v
+        if v.startswith("postgresql://"):
+            return "postgresql+asyncpg://" + v[len("postgresql://"):]
+        if v.startswith("postgres://"):
+            return "postgresql+asyncpg://" + v[len("postgres://"):]
+        return v
 
     # ── Redis / Arq ──────────────────────────────────────────
     redis_url: str = "redis://localhost:6379/0"
