@@ -20,9 +20,15 @@ logger = get_logger(__name__)
 async def lifespan(app: FastAPI):
     configure_logging()
 
-    # Local dev (SQLite): create tables directly instead of running Alembic.
-    if settings.is_sqlite:
+    # Create tables directly (create_all) instead of running Alembic — always for
+    # local SQLite, and on managed Postgres when AUTO_CREATE_TABLES=true.
+    if settings.is_sqlite or settings.auto_create_tables:
         await init_models()
+
+    # First-boot seed (no-op unless SEED_ON_START=true and the DB is empty).
+    from app.core.seed import seed_if_empty
+
+    await seed_if_empty()
 
     # Background execution: Arq+Redis in production, in-process for local dev.
     if settings.run_worker_inline:
