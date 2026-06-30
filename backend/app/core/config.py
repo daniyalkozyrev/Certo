@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     auto_create_tables: bool = False
     # Seed a demo agent + benchmark on first boot so a fresh deploy is usable.
     seed_on_start: bool = False
+    # Use a pgvector column for skill embeddings. Off by default so create_all
+    # works on a plain managed Postgres (no `vector` extension required); the MVP
+    # doesn't run similarity search yet, so JSON storage is fine.
+    pgvector_enabled: bool = False
 
     @field_validator("database_url")
     @classmethod

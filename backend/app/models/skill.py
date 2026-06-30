@@ -12,18 +12,23 @@ from typing import Any
 from sqlalchemy import JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.config import settings
 from app.models.base import Base, JSONType, TimestampMixin, UUIDMixin
 
 # Dimensionality of the embedding model used for skill retrieval.
 EMBEDDING_DIM = 1536
 
-# Embedding stored as pgvector on Postgres; falls back to JSON on SQLite (local dev).
-try:
-    from pgvector.sqlalchemy import Vector
+# Embedding stored as a pgvector column ONLY when explicitly enabled (the Postgres
+# `vector` extension must exist). Otherwise JSON everywhere — so create_all works on
+# a plain managed Postgres, and the MVP (no similarity search yet) is unaffected.
+EmbeddingType: Any = JSON()
+if settings.pgvector_enabled:
+    try:
+        from pgvector.sqlalchemy import Vector
 
-    EmbeddingType = JSON().with_variant(Vector(EMBEDDING_DIM), "postgresql")
-except ImportError:  # pgvector not installed (pure local runs)
-    EmbeddingType = JSON()
+        EmbeddingType = JSON().with_variant(Vector(EMBEDDING_DIM), "postgresql")
+    except ImportError:  # pgvector not installed
+        EmbeddingType = JSON()
 
 
 class Skill(UUIDMixin, TimestampMixin, Base):
