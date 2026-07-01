@@ -122,14 +122,21 @@ class Settings(BaseSettings):
     # Frontend origin (for OAuth redirects back to the app)
     frontend_url: str = "http://localhost:3000"
 
-    # Email delivery for login codes: "console" (dev, logs the code) or "smtp"
-    email_mode: Literal["console", "smtp"] = "console"
+    # Email delivery for login codes.
+    #   "console" — dev: logs the code (and returns it in local mode).
+    #   "smtp"    — classic SMTP (blocked outbound on many PaaS incl. Railway).
+    #   "brevo"/"sendgrid"/"resend" — HTTP email APIs over :443 (work on Railway).
+    email_mode: Literal["console", "smtp", "brevo", "sendgrid", "resend"] = "console"
     email_from: str = "Certo <no-reply@certo.local>"
     smtp_host: str | None = None
     smtp_port: int = 587
     smtp_user: str | None = None
     smtp_password: str | None = None
     smtp_tls: bool = True
+    # HTTP email-API keys (used when email_mode is the matching provider).
+    brevo_api_key: str | None = None
+    sendgrid_api_key: str | None = None
+    resend_api_key: str | None = None
 
     # Google OAuth (optional — fill in to enable "Continue with Google")
     google_client_id: str | None = None
