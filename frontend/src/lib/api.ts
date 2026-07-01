@@ -185,6 +185,7 @@ export interface User {
   email: string;
   name: string | null;
   auth_provider: string;
+  email_verified?: boolean;
   created_at: string;
 }
 
@@ -196,8 +197,20 @@ export interface AuthConfig {
 export function getAuthConfig() {
   return request<AuthConfig>(`/auth/config`);
 }
+export function signup(email: string, password: string, name?: string) {
+  return request<{ sent: boolean; verified: boolean; dev_code: string | null }>(`/auth/signup`, {
+    method: "POST",
+    body: JSON.stringify({ email, password, name: name || null }),
+  });
+}
+export function login(email: string, password: string) {
+  return request<{ access_token: string; token_type: string; user: User }>(`/auth/login`, {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+}
 export function requestLoginCode(email: string) {
-  return request<{ sent: boolean; dev_code: string | null }>(`/auth/request-code`, {
+  return request<{ sent: boolean; verified: boolean; dev_code: string | null }>(`/auth/request-code`, {
     method: "POST",
     body: JSON.stringify({ email }),
   });
