@@ -35,3 +35,6 @@ Thumbs.db
 
 # Keep .env.example templates (they carry no secrets) — they are not matched
 # by the `.env` rule above because the filename differs.
+
+.vercel
+.env*

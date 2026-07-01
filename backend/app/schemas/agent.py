@@ -39,6 +39,15 @@ class AgentCreate(BaseModel):
     config: AgentConfig = Field(default_factory=AgentConfig)
 
 
+class AgentUpdate(BaseModel):
+    """Partial update. Any field left None is unchanged; `config`, if provided,
+    REPLACES the stored config wholesale (so a key can be dropped by omitting it)."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = None
+    config: AgentConfig | None = None
+
+
 class AgentRead(ORMModel):
     id: uuid.UUID
     name: str
