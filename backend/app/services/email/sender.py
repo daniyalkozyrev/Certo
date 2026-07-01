@@ -34,7 +34,7 @@ def _send_smtp(to_email: str, code: str) -> None:
     import smtplib
 
     msg = _build_message(to_email, code)
-    with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=15) as server:
+    with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20) as server:
         if settings.smtp_tls:
             server.starttls()
         if settings.smtp_user:
@@ -44,7 +44,15 @@ def _send_smtp(to_email: str, code: str) -> None:
 
 async def send_login_code(to_email: str, code: str) -> None:
     if settings.email_mode == "smtp" and settings.smtp_host:
-        await asyncio.to_thread(_send_smtp, to_email, code)
+        try:
+            await asyncio.to_thread(_send_smtp, to_email, code)
+        except Exception as exc:  # bad SMTP creds / blocked port / Gmail rejection
+            from app.core.exceptions import ExternalServiceError
+
+            logger.error("email.smtp_error", to=to_email, error=str(exc))
+            raise ExternalServiceError(
+                "Could not send the verification email. Please try again shortly."
+            ) from exc
         logger.info("email.sent_smtp", to=to_email)
     else:
         # Dev mode: surface the code in logs so it can be used without a mail server.

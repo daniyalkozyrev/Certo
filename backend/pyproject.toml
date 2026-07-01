@@ -26,6 +26,7 @@ dependencies = [
     "anthropic>=0.40",       # official Claude SDK -> temporary judge while Prometheus GPU is down
     "httpx>=0.27",
     # Auth / security
+    "bcrypt>=4.1",           # password hashing (used directly, not via passlib)
     "passlib[bcrypt]>=1.7.4",
     "pyjwt>=2.10",
     # Utilities

@@ -1,4 +1,4 @@
-"""User accounts and login codes (passwordless email + Google OAuth)."""
+"""User accounts and login codes (email+password with email verification, + Google OAuth)."""
 
 from __future__ import annotations
 
@@ -15,8 +15,12 @@ class User(UUIDMixin, TimestampMixin, Base):
 
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True, nullable=False)
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    # "email" (code login) or "google"
+    # "email" (password login) or "google"
     auth_provider: Mapped[str] = mapped_column(String(32), default="email", nullable=False)
+    # bcrypt hash of the password (null for Google users / not-yet-set). NEVER plaintext.
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Email ownership confirmed via the one-time code before login is allowed.
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
 class LoginCode(UUIDMixin, TimestampMixin, Base):

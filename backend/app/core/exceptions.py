@@ -38,6 +38,13 @@ class ValidationError(CertoError):
     code = "validation_error"
 
 
+class ForbiddenError(CertoError):
+    """Action not allowed in the current account state (e.g. email not verified)."""
+
+    status_code = status.HTTP_403_FORBIDDEN
+    code = "forbidden"
+
+
 class ExternalServiceError(CertoError):
     """An upstream service (E2B, judge, agent endpoint) failed."""
 

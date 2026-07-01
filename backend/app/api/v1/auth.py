@@ -11,19 +11,23 @@ from sqlalchemy import select
 
 from app.api.deps import CurrentUser, SessionDep
 from app.core.config import settings
-from app.core.exceptions import ExternalServiceError, ValidationError
+from app.core.exceptions import ExternalServiceError, ForbiddenError, ValidationError
 from app.core.logging import get_logger
 from app.core.security import (
     create_access_token,
     generate_code,
     hash_code,
+    hash_password,
     verify_code,
+    verify_password,
 )
 from app.models.user import LoginCode, User
 from app.schemas.auth import (
     AuthConfigOut,
+    LoginIn,
     RequestCodeIn,
     RequestCodeOut,
+    SignupIn,
     TokenOut,
     UserRead,
     VerifyCodeIn,
@@ -48,9 +52,9 @@ async def auth_config() -> AuthConfigOut:
     return AuthConfigOut(google_enabled=settings.google_enabled, email_mode=settings.email_mode)
 
 
-@router.post("/request-code", response_model=RequestCodeOut)
-async def request_code(payload: RequestCodeIn, session: SessionDep) -> RequestCodeOut:
-    email = payload.email.lower()
+async def _issue_verification_code(session: SessionDep, email: str) -> str:
+    """Create + email a fresh one-time code. Returns it (surfaced to the API only
+    in local console mode)."""
     code = generate_code()
     session.add(
         LoginCode(
@@ -62,29 +66,86 @@ async def request_code(payload: RequestCodeIn, session: SessionDep) -> RequestCo
     )
     await session.commit()
     await send_login_code(email, code)
+    return code
+
+
+@router.post("/signup", response_model=RequestCodeOut, status_code=201)
+async def signup(payload: SignupIn, session: SessionDep) -> RequestCodeOut:
+    """Create an email+password account and email a verification code. The account
+    can't log in until the code is confirmed via /auth/verify."""
+    email = payload.email.lower()
+    user = await session.scalar(select(User).where(User.email == email))
+    if user is not None and user.password_hash and user.email_verified:
+        raise ValidationError("An account with this email already exists. Please log in.")
+    if user is None:
+        user = User(email=email, auth_provider="email")
+        session.add(user)
+    # (Re)set the password for a new or not-yet-verified account (lets a user who
+    # never finished verification start over, and lets a legacy code-only user
+    # claim a password).
+    user.password_hash = hash_password(payload.password)
+    user.email_verified = False
+    if payload.name:
+        user.name = payload.name
+    await session.flush()
+
+    code = await _issue_verification_code(session, email)
+    return RequestCodeOut(sent=True, dev_code=code if settings.expose_dev_code else None)
+
+
+@router.post("/login", response_model=TokenOut)
+async def login(payload: LoginIn, session: SessionDep) -> TokenOut:
+    email = payload.email.lower()
+    user = await session.scalar(select(User).where(User.email == email))
+    if user is None or not verify_password(payload.password, user.password_hash):
+        raise ValidationError("Incorrect email or password.")
+    if not user.email_verified:
+        # Help them finish: send a fresh code and tell the client to verify.
+        await _issue_verification_code(session, email)
+        raise ForbiddenError("Please verify your email — we've sent you a new code.")
+    token = create_access_token(user.id, user.email)
+    return TokenOut(access_token=token, user=UserRead.model_validate(user))
+
+
+@router.post("/request-code", response_model=RequestCodeOut)
+async def request_code(payload: RequestCodeIn, session: SessionDep) -> RequestCodeOut:
+    """Resend a verification code (used by the 'resend' button on the verify step)."""
+    email = payload.email.lower()
+    code = await _issue_verification_code(session, email)
     return RequestCodeOut(sent=True, dev_code=code if settings.expose_dev_code else None)
 
 
 @router.post("/verify", response_model=TokenOut)
 async def verify(payload: VerifyCodeIn, session: SessionDep) -> TokenOut:
+    """Confirm the emailed code -> mark the email verified -> log the user in."""
     email = payload.email.lower()
-    row = await session.scalar(
-        select(LoginCode)
-        .where(LoginCode.email == email, LoginCode.consumed.is_(False))
-        .order_by(LoginCode.created_at.desc())
-    )
-    if row is not None:
-        # SQLite returns naive datetimes; treat them as UTC for the comparison.
-        expires = row.expires_at
-        if expires.tzinfo is None:
-            expires = expires.replace(tzinfo=timezone.utc)
-    if row is None or expires < datetime.now(timezone.utc):
-        raise ValidationError("Code expired or not found. Request a new one.")
-    if not verify_code(payload.code.strip(), row.code_hash):
-        raise ValidationError("Incorrect code.")
+    now = datetime.now(timezone.utc)
+    # Accept ANY outstanding (unconsumed, unexpired) code — a user may have several
+    # in flight (signup + a resend), and entering any valid one should work.
+    rows = (
+        await session.scalars(
+            select(LoginCode)
+            .where(LoginCode.email == email, LoginCode.consumed.is_(False))
+            .order_by(LoginCode.created_at.desc())
+        )
+    ).all()
+    submitted = payload.code.strip()
 
-    row.consumed = True
+    def _valid(row: LoginCode) -> bool:
+        expires = row.expires_at
+        if expires.tzinfo is None:  # SQLite returns naive datetimes -> treat as UTC
+            expires = expires.replace(tzinfo=timezone.utc)
+        return expires >= now and verify_code(submitted, row.code_hash)
+
+    match = next((r for r in rows if _valid(r)), None)
+    if match is None:
+        # Distinguish "no code at all" from "wrong/expired code" for a clearer message.
+        raise ValidationError(
+            "Incorrect code." if rows else "Code expired or not found. Request a new one."
+        )
+    match.consumed = True
     user = await _get_or_create_user(session, email, "email")
+    user.email_verified = True
     await session.commit()
 
     token = create_access_token(user.id, user.email)
