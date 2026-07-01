@@ -6,10 +6,13 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.agent import AgentType
 from app.schemas.common import ORMModel
+
+# Config keys whose values must never leave the server in an API response.
+_SENSITIVE_KEYS = {"api_key", "apikey", "token", "secret", "password"}
 
 
 class AgentConfig(BaseModel):
@@ -44,3 +47,15 @@ class AgentRead(ORMModel):
     config: dict[str, Any]
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("config", mode="before")
+    @classmethod
+    def _redact_secrets(cls, v: Any) -> Any:
+        """Never return an agent's api_key (etc.) over the API — mask it so the UI
+        can still show that a value is configured without leaking it."""
+        if isinstance(v, dict):
+            return {
+                k: ("***configured***" if k.lower() in _SENSITIVE_KEYS and val else val)
+                for k, val in v.items()
+            }
+        return v
