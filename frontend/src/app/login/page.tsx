@@ -3,23 +3,30 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowRight, Loader2, Mail, ShieldCheck } from "lucide-react";
+import { ArrowRight, Loader2, Lock, Mail, ShieldCheck, User as UserIcon } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/logo";
 import { useAuth } from "@/components/auth-provider";
 import {
-  ApiError, getAuthConfig, googleAuthorizeUrl, requestLoginCode, verifyLoginCode,
+  ApiError, getAuthConfig, googleAuthorizeUrl, login as apiLogin,
+  requestLoginCode, signup as apiSignup, verifyLoginCode,
 } from "@/lib/api";
+
+type Mode = "login" | "signup";
+type Step = "form" | "code";
 
 export default function LoginPage() {
   const router = useRouter();
   const { login, user, loading } = useAuth();
 
-  const [step, setStep] = useState<"email" | "code">("email");
+  const [mode, setMode] = useState<Mode>("login");
+  const [step, setStep] = useState<Step>("form");
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
-  const [devCode, setDevCode] = useState<string | null>(null);
+  const [notice, setNotice] = useState("");
   const [googleEnabled, setGoogleEnabled] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -42,22 +49,40 @@ export default function LoginPage() {
     getAuthConfig().then((c) => setGoogleEnabled(c.google_enabled)).catch(() => {});
   }, []);
 
-  async function sendCode() {
+  function switchMode(m: Mode) {
+    setMode(m); setError(""); setNotice(""); setStep("form"); setCode("");
+  }
+
+  async function submitForm() {
     if (!email.trim()) { setError("Enter your email."); return; }
-    setBusy(true); setError("");
+    if (password.length < 8 && mode === "signup") { setError("Password must be at least 8 characters."); return; }
+    if (!password) { setError("Enter your password."); return; }
+    setBusy(true); setError(""); setNotice("");
     try {
-      const res = await requestLoginCode(email.trim());
-      setDevCode(res.dev_code);
-      setStep("code");
+      if (mode === "signup") {
+        await apiSignup(email.trim(), password, name.trim() || undefined);
+        setNotice(`We emailed a 6-digit code to ${email.trim()}.`);
+        setStep("code");
+      } else {
+        const res = await apiLogin(email.trim(), password);
+        await login(res.access_token, res.user);
+        router.replace("/dashboard");
+      }
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not send the code.");
+      if (e instanceof ApiError && e.status === 403) {
+        // account exists but email not verified — backend just re-sent a code
+        setNotice(`Verify your email — we sent a code to ${email.trim()}.`);
+        setStep("code");
+      } else {
+        setError(e instanceof ApiError ? e.message : "Something went wrong. Try again.");
+      }
     } finally {
       setBusy(false);
     }
   }
 
   async function verify() {
-    if (!code.trim()) { setError("Enter the code."); return; }
+    if (code.length !== 6) { setError("Enter the 6-digit code."); return; }
     setBusy(true); setError("");
     try {
       const res = await verifyLoginCode(email.trim(), code.trim());
@@ -69,6 +94,18 @@ export default function LoginPage() {
     }
   }
 
+  async function resend() {
+    setBusy(true); setError(""); setNotice("");
+    try {
+      await requestLoginCode(email.trim());
+      setNotice("A new code is on its way.");
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not resend the code.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="grid min-h-screen place-items-center bg-secondary/30 p-4">
       <div className="w-full max-w-sm">
@@ -76,52 +113,79 @@ export default function LoginPage() {
         <Card>
           <CardContent className="space-y-5 pt-6">
             <div className="text-center">
-              <h1 className="text-xl font-semibold tracking-tight">Sign in to Certo</h1>
+              <h1 className="text-xl font-semibold tracking-tight">
+                {step === "code" ? "Check your email" : mode === "signup" ? "Create your Certo account" : "Sign in to Certo"}
+              </h1>
               <p className="mt-1 text-sm text-muted-foreground">
-                {step === "email" ? "We'll email you a one-time code." : `Code sent to ${email}`}
+                {step === "code"
+                  ? `Enter the 6-digit code we emailed to ${email}.`
+                  : mode === "signup"
+                  ? "Email + password. We'll verify your email once."
+                  : "Welcome back."}
               </p>
             </div>
 
-            {googleEnabled && step === "email" && (
+            {step === "form" && (
               <>
-                <a href={googleAuthorizeUrl()}>
-                  <Button variant="outline" size="lg" className="w-full">
-                    <GoogleIcon /> Continue with Google
-                  </Button>
-                </a>
-                <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                  <div className="h-px flex-1 bg-border" /> or <div className="h-px flex-1 bg-border" />
+                {/* Login / Sign up toggle */}
+                <div className="flex items-center rounded-lg border p-0.5">
+                  {(["login", "signup"] as const).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => switchMode(m)}
+                      className={
+                        "flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors " +
+                        (mode === m ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground")
+                      }
+                    >
+                      {m === "login" ? "Log in" : "Sign up"}
+                    </button>
+                  ))}
                 </div>
+
+                {googleEnabled && (
+                  <>
+                    <a href={googleAuthorizeUrl()}>
+                      <Button variant="outline" size="lg" className="w-full">
+                        <GoogleIcon /> Continue with Google
+                      </Button>
+                    </a>
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                      <div className="h-px flex-1 bg-border" /> or <div className="h-px flex-1 bg-border" />
+                    </div>
+                  </>
+                )}
               </>
             )}
 
             <AnimatePresence mode="wait">
-              {step === "email" ? (
-                <motion.div key="email" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-3">
-                  <div className="flex items-center gap-2 rounded-lg border bg-background px-3">
-                    <Mail className="size-4 text-muted-foreground" />
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && sendCode()}
-                      placeholder="you@email.com"
-                      autoFocus
-                      className="w-full bg-transparent py-2.5 text-sm outline-none placeholder:text-muted-foreground"
-                    />
-                  </div>
-                  <Button onClick={sendCode} size="lg" className="w-full" disabled={busy}>
-                    {busy ? <Loader2 className="size-4 animate-spin" /> : <>Continue <ArrowRight className="size-4" /></>}
+              {step === "form" ? (
+                <motion.div key="form" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-3">
+                  {mode === "signup" && (
+                    <Field icon={<UserIcon className="size-4 text-muted-foreground" />}>
+                      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name (optional)"
+                        className="w-full bg-transparent py-2.5 text-sm outline-none placeholder:text-muted-foreground" />
+                    </Field>
+                  )}
+                  <Field icon={<Mail className="size-4 text-muted-foreground" />}>
+                    <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@email.com" autoFocus
+                      className="w-full bg-transparent py-2.5 text-sm outline-none placeholder:text-muted-foreground" />
+                  </Field>
+                  <Field icon={<Lock className="size-4 text-muted-foreground" />}>
+                    <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && submitForm()}
+                      placeholder={mode === "signup" ? "Password (min 8 characters)" : "Password"}
+                      className="w-full bg-transparent py-2.5 text-sm outline-none placeholder:text-muted-foreground" />
+                  </Field>
+                  <Button onClick={submitForm} size="lg" className="w-full" disabled={busy}>
+                    {busy ? <Loader2 className="size-4 animate-spin" /> : (
+                      <>{mode === "signup" ? "Create account" : "Log in"} <ArrowRight className="size-4" /></>
+                    )}
                   </Button>
                 </motion.div>
               ) : (
                 <motion.div key="code" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-3">
-                  {devCode && (
-                    <div className="rounded-lg border border-accent/30 bg-accent/5 p-3 text-center text-sm">
-                      <span className="text-muted-foreground">Dev mode — your code is </span>
-                      <span className="font-mono font-semibold text-accent">{devCode}</span>
-                    </div>
-                  )}
                   <input
                     value={code}
                     onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
@@ -132,22 +196,33 @@ export default function LoginPage() {
                     className="w-full rounded-lg border bg-background px-3 py-2.5 text-center font-mono text-lg tracking-[0.3em] outline-none focus:ring-2 focus:ring-ring"
                   />
                   <Button onClick={verify} size="lg" className="w-full" disabled={busy}>
-                    {busy ? <Loader2 className="size-4 animate-spin" /> : <><ShieldCheck className="size-4" /> Verify & sign in</>}
+                    {busy ? <Loader2 className="size-4 animate-spin" /> : <><ShieldCheck className="size-4" /> Verify & continue</>}
                   </Button>
-                  <button onClick={() => { setStep("email"); setCode(""); setError(""); }} className="w-full text-xs text-muted-foreground hover:text-foreground">
-                    ← Use a different email
-                  </button>
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <button onClick={() => { setStep("form"); setCode(""); setError(""); setNotice(""); }} className="hover:text-foreground">← Back</button>
+                    <button onClick={resend} disabled={busy} className="hover:text-foreground">Resend code</button>
+                  </div>
                 </motion.div>
               )}
             </AnimatePresence>
 
+            {notice && <p className="text-center text-sm text-muted-foreground">{notice}</p>}
             {error && <p className="text-center text-sm text-[hsl(var(--danger))]">{error}</p>}
           </CardContent>
         </Card>
         <p className="mt-4 text-center text-xs text-muted-foreground">
-          By continuing you agree to Certo&apos;s terms. No password required.
+          By continuing you agree to Certo&apos;s terms.
         </p>
       </div>
+    </div>
+  );
+}
+
+function Field({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2 rounded-lg border bg-background px-3">
+      {icon}
+      {children}
     </div>
   );
 }
