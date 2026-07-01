@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
 from app.core.config import settings
-from app.core.database import init_models
+from app.core.database import ensure_auth_columns, init_models
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging, get_logger
 
@@ -24,6 +24,9 @@ async def lifespan(app: FastAPI):
     # local SQLite, and on managed Postgres when AUTO_CREATE_TABLES=true.
     if settings.is_sqlite or settings.auto_create_tables:
         await init_models()
+
+    # Add password-auth columns to a pre-existing users table (idempotent).
+    await ensure_auth_columns()
 
     # First-boot seed (no-op unless SEED_ON_START=true and the DB is empty).
     from app.core.seed import seed_if_empty
