@@ -225,7 +225,7 @@ export default function NewEvaluationPage() {
                       </div>
                       <input value={model} onChange={(e) => setModel(e.target.value)} placeholder="Model (optional, e.g. gpt-4o-mini)" className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
                       <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="Base URL (optional, OpenAI-compatible)" className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
-                      <input value={apiKey} onChange={(e) => setApiKey(e.target.value)} type="password" placeholder="API key (optional — empty = mock agent)" className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
+                      <input value={apiKey} onChange={(e) => setApiKey(e.target.value)} type="password" placeholder="API key (optional — empty uses the platform default model)" className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
                       <textarea value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} rows={2} placeholder="System prompt (optional)" className="w-full resize-none rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
                     </div>
                   )}
