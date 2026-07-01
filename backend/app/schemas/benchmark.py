@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -17,6 +18,9 @@ class TaskCreate(BaseModel):
     reference_answer: str | None = None
     grading_type: GradingType = GradingType.JUDGE
     test_code: str | None = None
+    # Benchmark-specific payload (e.g. SWE-bench harness inputs:
+    # instance_id / repo / base_commit / FAIL_TO_PASS / gold_patch ...).
+    meta: dict[str, Any] | None = None
     max_score: int = Field(default=5, ge=1, le=10)
 
 
@@ -28,6 +32,7 @@ class TaskRead(ORMModel):
     reference_answer: str | None
     grading_type: GradingType
     test_code: str | None
+    meta: dict[str, Any] | None = None
     max_score: int
     created_at: datetime
 

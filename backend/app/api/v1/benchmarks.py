@@ -29,6 +29,7 @@ async def create_benchmark(
             reference_answer=t.reference_answer,
             grading_type=t.grading_type,
             test_code=t.test_code,
+            meta=t.meta,
             max_score=t.max_score,
         )
         for t in payload.tasks
